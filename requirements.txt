@@ -1,5 +1,5 @@
 flask
 flask-cors
 groq
-pdfplumber
+PyMuPDF
 python-dotenv
