@@ -1,6 +1,5 @@
 flask
 flask-cors
 groq
-PyMuPDF
-werkzeug
+PyPDF2
 python-dotenv
