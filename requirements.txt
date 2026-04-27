@@ -5,3 +5,6 @@ PyMuPDF
 thefuzz
 pandas
 python-dotenv
+pdf2image
+pytesseract
+Pillow
