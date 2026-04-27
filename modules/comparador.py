@@ -16,7 +16,6 @@ def extraer_texto_pdf(contenido_bytes):
             texto += page.get_text()
         doc.close()
         texto = re.sub(r'\s+', ' ', texto)
-        # Limitar a 3000 caracteres para reducir tokens
         return texto[:3000]
     except Exception as e:
         print(f"❌ Error PDF: {str(e)}")
@@ -33,24 +32,34 @@ def extraer_texto_xml(contenido_bytes):
     return texto[:3000]
 
 
-def extraer_datos_xml(xml_str):
-    """Extrae número de factura y RUC del proveedor"""
+def extraer_datos_xml(xml_bytes):
+    """Extrae número de factura y RUC del proveedor desde los bytes originales del XML"""
     num_factura = ""
     ruc_proveedor = ""
     
-    match_num = re.search(r'<cbc:ID>([A-Z0-9-]+)</cbc:ID>', xml_str)
-    if match_num:
-        num_factura = match_num.group(1)
-    
-    match_ruc = re.search(r'<cbc:ID schemeID="6".*?>(\d+)</cbc:ID>', xml_str)
-    if match_ruc:
-        ruc_proveedor = match_ruc.group(1)
+    try:
+        xml_str = xml_bytes.decode('utf-8', errors='ignore')
+        
+        # Buscar número de factura: <cbc:ID>FF01-17763</cbc:ID>
+        match_num = re.search(r'<cbc:ID>([A-Z0-9-]+)</cbc:ID>', xml_str)
+        if match_num:
+            num_factura = match_num.group(1)
+            print(f"📑 Número de factura: {num_factura}")
+        
+        # Buscar RUC: <cbc:ID schemeID="6">20100015014</cbc:ID>
+        match_ruc = re.search(r'<cbc:ID schemeID="6".*?>(\d+)</cbc:ID>', xml_str)
+        if match_ruc:
+            ruc_proveedor = match_ruc.group(1)
+            print(f"🏢 RUC: {ruc_proveedor}")
+            
+    except Exception as e:
+        print(f"❌ Error extrayendo datos XML: {str(e)}")
     
     return num_factura, ruc_proveedor
 
 
 def comparar_con_ia(pdf_texto, xml_texto, pdf_nombre, xml_nombre):
-    """Compara PDF vs XML con IA (prompt optimizado)"""
+    """Compara PDF vs XML con IA"""
     
     if not client:
         return "Error: GROQ_API_KEY no configurada", True
@@ -61,21 +70,21 @@ Compara el PDF y XML de esta factura.
 PDF ({pdf_nombre}): {pdf_texto[:1500]}
 XML ({xml_nombre}): {xml_texto[:1500]}
 
-Responde EXACTAMENTE con este formato:
+Responde EXACTAMENTE:
 ===ANALISIS===
-[Lista qué campos coinciden y cuáles no]
+[Campos que coinciden y no]
 ===DISCREPANCIAS===
 [true o false]
 """
 
     completion = client.chat.completions.create(
         messages=[
-            {"role": "system", "content": "Eres un auditor de facturas. Sé preciso."},
+            {"role": "system", "content": "Eres un auditor de facturas."},
             {"role": "user", "content": prompt}
         ],
         model="llama-3.3-70b-versatile",
         temperature=0.1,
-        max_tokens=500  # Reducido de 2000 a 500
+        max_tokens=500
     )
 
     respuesta = completion.choices[0].message.content
@@ -99,7 +108,8 @@ def comparar_pdf_xml(pdf_bytes, xml_bytes, pdf_nombre, xml_nombre):
     
     pdf_texto = extraer_texto_pdf(pdf_bytes)
     xml_texto = extraer_texto_xml(xml_bytes)
-    num_factura, ruc_proveedor = extraer_datos_xml(xml_texto)
+    num_factura, ruc_proveedor = extraer_datos_xml(xml_bytes)  # ← Usa xml_bytes original
+    
     analisis, tiene_discrepancias = comparar_con_ia(pdf_texto, xml_texto, pdf_nombre, xml_nombre)
     
     return {
