@@ -2,4 +2,6 @@ flask
 flask-cors
 groq
 PyMuPDF
+thefuzz
+pandas
 python-dotenv
