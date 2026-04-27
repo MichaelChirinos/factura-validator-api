@@ -41,6 +41,8 @@ def comparar():
             'xml_procesado': xml_nombre,
             'analisis_ia': resultado['analisis'],
             'alerta_discrepancia': resultado['tiene_discrepancias'],
+            'num_factura': resultado.get('num_factura', ''),
+            'ruc_proveedor': resultado.get('ruc_proveedor', ''), 
             'timestamp': datetime.now().isoformat()
         })
         
