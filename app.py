@@ -5,6 +5,7 @@ import base64
 from datetime import datetime
 from modules.comparador import comparar_pdf_xml
 from modules.validador_contable import auditar
+from modules.validador_ubicacion import validar_ubicacion
 
 app = Flask(__name__)
 CORS(app)
@@ -94,7 +95,30 @@ def home():
         }
     })
 
-
+@app.route('/validar-ubicacion', methods=['POST'])
+def validar_ubicacion_endpoint():
+    print("\n=== NUEVA PETICIÓN A /validar-ubicacion ===")
+    
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No se recibió JSON'}), 400
+        
+        codigo_sap = data.get('codigo_sap', '')
+        archivo_pdf = data.get('archivo_pdf', '')
+        direccion_sap = data.get('direccion_sap', '')
+        
+        if not codigo_sap or not archivo_pdf:
+            return jsonify({'error': 'Faltan codigo_sap o archivo_pdf'}), 400
+        
+        resultado = validar_ubicacion(codigo_sap, archivo_pdf, direccion_sap)
+        
+        return jsonify(resultado)
+        
+    except Exception as e:
+        print(f"❌ ERROR en /validar-ubicacion: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({
