@@ -1,6 +1,9 @@
 import os
+import re
+import json
+import base64
 from groq import Groq
-from modules.comparador import extraer_texto_pdf, extraer_datos_xml
+from modules.comparador import extraer_texto_pdf
 
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
 client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
@@ -36,46 +39,76 @@ MAPEO_SEDES = {
 
 
 def validar_ubicacion(codigo_sap, archivo_pdf_base64, direccion_sap):
-    """Valida si la ubicación en el PDF coincide con la sede de SAP"""
+    """
+    Valida si la ubicación en el PDF coincide con la sede de SAP
+    
+    Args:
+        codigo_sap (str): Código de la sede SAP (ej: GAMBET)
+        archivo_pdf_base64 (str): PDF en Base64
+        direccion_sap (str): Dirección registrada en SAP
+    
+    Returns:
+        dict: {"estado": "OK" o "ALERTA", "motivo": "explicación"}
+    """
     
     if not client:
         return {"estado": "ERROR", "motivo": "GROQ_API_KEY no configurada"}
     
     try:
         # 1. Decodificar PDF
-        import base64
         pdf_bytes = base64.b64decode(archivo_pdf_base64)
         
-        # 2. Extraer texto del PDF (reutilizando función existente)
+        # 2. Extraer texto del PDF (reutilizando función de comparador.py)
         texto_pdf = extraer_texto_pdf(pdf_bytes)
         
         if not texto_pdf or len(texto_pdf) < 50:
-            texto_pdf = "ERROR: No se pudo extraer texto del PDF (posiblemente es una imagen escaneada)"
+            texto_pdf = "No se pudo extraer texto del PDF (posiblemente es una imagen escaneada)"
         
-        # 3. Obtener nombre de la sede
-        nombre_largo = MAPEO_SEDES.get(codigo_sap, codigo_sap)
+        # 3. Obtener nombre de la sede desde el mapeo
+        nombre_sede = MAPEO_SEDES.get(codigo_sap, codigo_sap)
         
-        # 4. Prompt optimizado
+        # 4. Prompt optimizado para auditoría geográfica
         prompt = f"""
 Actúa como un auditor logístico experto para Manuchar Perú.
 
-DATOS SAP:
-- Sede: {nombre_largo} ({codigo_sap})
-- Dirección SAP: {direccion_sap if direccion_sap else 'No especificada'}
+DATOS DE SAP:
+- Código de sede: {codigo_sap}
+- Nombre de sede: {nombre_sede}
+- Dirección registrada en SAP: {direccion_sap if direccion_sap else 'No especificada'}
 
-CONTENIDO DEL PDF:
+CONTENIDO EXTRAÍDO DEL PDF:
 {texto_pdf[:3000]}
 
-INSTRUCCIONES:
-1. Busca en el PDF la dirección, punto de entrega o ubicación del servicio
-2. Responde OK si coincide con la sede SAP o su distrito
-3. Responde ALERTA si hay contradicción geográfica (ej: SAP dice GAMBETA/CALLAO pero PDF dice LURIN/SURCO)
-4. Si el PDF no tiene ubicación clara, responde OK
+INSTRUCCIONES DE AUDITORÍA:
+1. Busca en el PDF la dirección, punto de entrega, destino o ubicación del servicio.
+2. Analiza si la ubicación en el PDF coincide con la sede de SAP.
+3. Responde OK si:
+   - La ubicación coincide exactamente
+   - Está en el mismo distrito
+   - Es un sinónimo lógico (ej: "Gambeta" = "Av. Néstor Gambetta")
+   - El PDF no menciona ubicación clara
+4. Responde ALERTA si:
+   - El PDF menciona una ciudad o distrito INCOMPATIBLE con la sede SAP
+   - Ejemplo: SAP dice GAMBETA (Callao) pero PDF dice LURÍN (Surco)
+   - Ejemplo: SAP dice PAITA (Piura) pero PDF dice AREQUIPA
 
-RESPONDE SOLO JSON:
-{{"estado": "OK" o "ALERTA", "motivo": "explicación breve"}}
+CONOCIMIENTO GEOGRÁFICO:
+- GAMBETA, VENTANILLA, RCALLA → Callao
+- PAITA, CAROLI, ZEDPAI → Piura
+- AREQ01 → Arequipa
+- SOLDEX, LURIN → Lima Sur
+- TRUJILLO → La Libertad
+
+RESPONDE ÚNICAMENTE EN JSON (sin texto adicional):
+{
+  "estado": "OK" o "ALERTA",
+  "motivo": "Explicación breve de la decisión (máximo 100 caracteres)"
+}
 """
+
+        print(f"🔍 Auditando ubicación: {codigo_sap}")
         
+        # 5. Llamar a Groq
         completion = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
@@ -84,9 +117,19 @@ RESPONDE SOLO JSON:
             max_tokens=300
         )
         
-        import json
+        # 6. Parsear respuesta
         resultado = json.loads(completion.choices[0].message.content)
+        
+        # 7. Validar que el resultado tenga los campos esperados
+        if "estado" not in resultado:
+            resultado["estado"] = "ERROR"
+        if "motivo" not in resultado:
+            resultado["motivo"] = "Respuesta de IA inválida"
+        
+        print(f"✅ Ubicación: {resultado['estado']} - {resultado['motivo'][:50]}")
+        
         return resultado
         
     except Exception as e:
-        return {"estado": "ERROR", "motivo": str(e)}
+        print(f"❌ Error en validar_ubicacion: {str(e)}")
+        return {"estado": "ERROR", "motivo": f"Error interno: {str(e)}"}
